@@ -8,7 +8,7 @@
 -- rather than solving big problems. It is also quite experimental:
 -- expect bugs and API changes!
 --
--- See Example.hs for some examples.
+-- See @Example.hs@ for some examples.
 module Solver.FourierMotzkin(
   -- * Problems
   Problem, problem, addConstraints, solve,
