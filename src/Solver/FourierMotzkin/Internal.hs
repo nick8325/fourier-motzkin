@@ -32,7 +32,7 @@ data Term a =
 instance Pretty a => Pretty (Term a) where pPrint = pPrintTerm pPrint
 instance Show a => Show (Term a) where show = show . pPrintTerm (text . show)
 
--- Pretty-print a term.
+-- | Pretty-print a term.
 pPrintTerm :: (a -> Doc) -> Term a -> Doc
 pPrintTerm pp (Term a vs)
   | Map.null vs = pPrintRat a
@@ -139,19 +139,20 @@ data Problem a =
   Unsolvable | 
   -- | A problem which may or may not be solvable.
   Problem {
-    -- ^ General constraints. Have the form @t >= 0@ or @t > 0@ where @t@ is a term
+    -- | General constraints. Have the form @t >= 0@ or @t > 0@ where @t@ is a term
     pos    :: Set (Bound (Term a)),
-    -- ^ Lower bounds. Have the form @x >= k@ or @x > k@ where @x@ is a variable
+    -- | Lower bounds. Have the form @x >= k@ or @x > k@ where @x@ is a variable
     lower  :: Map a (Bound Rational),
-    -- ^ Upper bounds. Have the form @x <= k@ or @x < k@ where @x@ is a variable
+    -- | Upper bounds. Have the form @x <= k@ or @x < k@ where @x@ is a variable
     upper  :: Map a (Bound Rational),
-    -- ^ The set of variables in the problem
+    -- | The set of variables in the problem
     pvars  :: Set a }
   deriving (Eq, Ord)
 
 instance Pretty a => Pretty (Problem a) where pPrint = pPrintProblem pPrint
 instance Show a => Show (Problem a) where show = show . pPrintProblem (text . show)
 
+-- | Pretty-print a problem.
 pPrintProblem :: (a -> Doc) -> Problem a -> Doc
 pPrintProblem pp Unsolvable = text "Unsolvable"
 pPrintProblem pp p =
