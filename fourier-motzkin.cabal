@@ -19,7 +19,7 @@ author:              Nick Smallbone
 maintainer:          nicsma@chalmers.se
 category:            Algorithms
 build-type:          Simple
-extra-source-files:  Examples.hs
+extra-source-files:  Examples.hs src/errors.h
 cabal-version:       >=1.10
 
 source-repository head
@@ -30,6 +30,7 @@ library
   exposed-modules:     Solver.FourierMotzkin, Solver.FourierMotzkin.Internal
   build-depends:       base >= 4 && < 5, containers, pretty
   hs-source-dirs:      src
+  include-dirs:        src
   default-language:    Haskell2010
 
 test-suite examples

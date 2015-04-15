@@ -1,8 +1,9 @@
 -- | The guts of the solver. You probably shouldn't need to look in
 -- here, and it's all underdocumented.
-{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor, CPP #-}
 module Solver.FourierMotzkin.Internal where
 
+#include "errors.h"
 import Control.Applicative hiding (empty)
 import Control.Monad
 import Data.List
@@ -87,12 +88,10 @@ instance Ord a => Num (Term a) where
 x ^* y = mapTerm (x*) y
 
 -- | Evaluate a term.
-eval :: Ord a => Map a Rational -> Term a -> Rational
-eval m t =
+eval :: Ord a => Rational -> Map a Rational -> Term a -> Rational
+eval def m t =
   constant t +
-  sum [ a * Map.findWithDefault err x m | (x, a) <- Map.toList (vars t) ]
-  where
-    err = error "eval: variable not bound"
+  sum [ a * Map.findWithDefault def x m | (x, a) <- Map.toList (vars t) ]
 
 -- | A single constraint of the form @t >= 0@ or @t > 0@.
 -- This type is also (ab)used to represent variable bounds
@@ -409,8 +408,8 @@ solve p | Set.null (pos p) =
       return (x, a)
 solve p = do
   m <- solve p'
-  let Just a = solveBounds (try (foldr1 bmax) (map (fmap (eval m)) ls),
-                            try (foldr1 bmin) (map (fmap (eval m)) us))
+  let Just a = solveBounds (try (foldr1 bmax) (map (fmap (eval __ m)) ls),
+                            try (foldr1 bmin) (map (fmap (eval __ m)) us))
   return (Map.insert x a m)
   where
     Eliminate x ls us p':_ = eliminations p
