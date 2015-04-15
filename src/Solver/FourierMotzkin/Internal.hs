@@ -4,13 +4,15 @@
 module Solver.FourierMotzkin.Internal where
 
 #include "errors.h"
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (empty)
+#endif
+
 import Control.Monad
 import Data.List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import Data.Maybe
-import Data.Monoid hiding ((<>))
 import Data.Ord
 import Data.Ratio
 import qualified Data.Set as Set
@@ -84,7 +86,7 @@ instance Ord a => Num (Term a) where
 
 -- | Multiply a term by a scalar.
 (^*) :: Rational -> Term a -> Term a
-0 ^* y = scalar 0
+0 ^* _ = scalar 0
 x ^* y = mapTerm (x*) y
 
 -- | Evaluate a term.
@@ -153,7 +155,7 @@ instance Show a => Show (Problem a) where show = show . pPrintProblem (text . sh
 
 -- | Pretty-print a problem.
 pPrintProblem :: (a -> Doc) -> Problem a -> Doc
-pPrintProblem pp Unsolvable = text "Unsolvable"
+pPrintProblem _  Unsolvable = text "Unsolvable"
 pPrintProblem pp p =
   brackets (sep (punctuate (text ",") xs))
   where
@@ -241,6 +243,7 @@ addBounds bs p =
     op t (l, u)
       | a > 0 = (Map.insertWith bmax x b l, u)
       | a < 0 = (l, Map.insertWith bmin x b u)
+      | otherwise = ERROR("zero coefficient")
       where
         (x, a) = Map.findMin (vars (bound t))
         b = fmap (\t -> negate (constant t) / a) t
@@ -399,21 +402,22 @@ foldDelete op e s = Set.foldr op' (e, s) s
 -- | Solve a problem, returning @Just@ a solution or @Nothing@.
 solve :: Ord a => Problem a -> Maybe (Map a Rational)
 solve Unsolvable = Nothing
-solve p | Set.null (pos p) =
-  fmap Map.fromList $
-    forM (Set.toList (pvars p)) $ \x -> do
-      let l = Map.lookup x (lower p)
-          u = Map.lookup x (upper p)
-      a <- solveBounds (l, u)
-      return (x, a)
-solve p = do
-  m <- solve p'
-  let Just a = solveBounds (try (foldr1 bmax) (map (fmap (eval __ m)) ls),
-                            try (foldr1 bmin) (map (fmap (eval __ m)) us))
-  return (Map.insert x a m)
+solve p =
+  case eliminations p of
+    [] ->
+      fmap Map.fromList $
+        forM (Set.toList (pvars p)) $ \x -> do
+          let l = Map.lookup x (lower p)
+              u = Map.lookup x (upper p)
+          a <- solveBounds (l, u)
+          return (x, a)
+    Eliminate x ls us p':_ -> do
+      m <- solve p'
+      let Just a = solveBounds (try (foldr1 bmax) (map (fmap (eval __ m)) ls),
+                                try (foldr1 bmin) (map (fmap (eval __ m)) us))
+      return (Map.insert x a m)
   where
-    Eliminate x ls us p':_ = eliminations p
-    try f [] = Nothing
+    try _ [] = Nothing
     try f xs = Just (f xs)
 
 -- Find a value satisfying a pair of bounds.
