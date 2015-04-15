@@ -38,7 +38,7 @@ pPrintTerm pp (Term a vs)
   | a == 0 = pPrintVars vs
   | otherwise = pPrintRat a <+> text "+" <+> pPrintVars vs
   where
-    pPrintVars vs = sep (punctuate (text " +") [ pPrint' a <> text "|" <> pp x <> text "|" | (x, a) <- Map.toList vs ])
+    pPrintVars vs = sep (punctuate (text " +") [ pPrint' a <> text "*" <> pp x | (x, a) <- Map.toList vs ])
     pPrint' 1 = text ""
     pPrint' (-1) = text "-"
     pPrint' x = pPrintRat x
@@ -47,7 +47,7 @@ pPrintTerm pp (Term a vs)
 showRat :: Rational -> String
 showRat a
   | denominator a == 1 = show (numerator a)
-  | otherwise = "(" ++ show a ++ ")"
+  | otherwise = "(" ++ show (numerator a) ++ "/" ++ show (denominator a) ++ ")"
 
 -- | A pretty-printer for rationals.
 pPrintRat :: Rational -> Doc
@@ -117,6 +117,14 @@ pPrintBound :: (a -> Doc) -> Bound a -> Doc
 pPrintBound pp (Closed x) = pp x <+> text ">= 0"
 pPrintBound pp (Open x) = pp x <+> text "> 0"
 
+pPrintLower :: Doc -> (a -> Doc) -> Bound a -> Doc
+pPrintLower x pp (Closed a) = x <+> text ">=" <+> pp a
+pPrintLower x pp (Open a) = x <+> text ">" <+> pp a
+
+pPrintUpper :: Doc -> (a -> Doc) -> Bound a -> Doc
+pPrintUpper x pp (Closed a) = x <+> text "<=" <+> pp a
+pPrintUpper x pp (Open a) = x <+> text "<" <+> pp a
+
 -- | Check if a constant bound is true.
 boundTrue :: (Ord a, Num a) => Bound a -> Bool
 boundTrue (Closed x) = x >= 0
@@ -144,10 +152,8 @@ pPrintProblem pp p =
   where
     xs =
       [pPrintBound (pPrintTerm pp) t | t <- Set.toList (pos p)] ++
-      [pp x <+> text ">=" <+> pPrintRat a | (x, Closed a) <- Map.toList (lower p)] ++
-      [pp x <+> text ">"  <+> pPrintRat a | (x, Open a)   <- Map.toList (lower p)] ++
-      [pp x <+> text "<=" <+> pPrintRat a | (x, Closed a) <- Map.toList (upper p)] ++
-      [pp x <+> text "<"  <+> pPrintRat a | (x, Open a)   <- Map.toList (upper p)]
+      [pPrintLower (pp x) pPrintRat b | (x, b) <- Map.toList (lower p)] ++
+      [pPrintUpper (pp x) pPrintRat b | (x, b) <- Map.toList (upper p)]
 
 -- | Construct a problem from a list of constraints.
 problem :: Ord a => [Constraint a] -> Problem a
@@ -292,12 +298,18 @@ pPrintStep :: (a -> Doc) -> Step a -> Doc
 pPrintStep pp StopUnsolvable = text "Stop, unsolvable"
 pPrintStep pp StopSolved = text "Stop, solved"
 pPrintStep pp (Eliminate x ls us p) =
-  hang e 2 (pPrintProblem pp p)
+  sep [
+    text "Eliminate" <+> pp x <+> text "with bounds",
+    nest 2 $
+      pPrintList $
+        [ pPrintLower (pp x) (pPrintTerm pp) l | l <- ls ] ++
+        [ pPrintUpper (pp x) (pPrintTerm pp) u | u <- us ],
+    text "giving",
+    nest 2 (pPrintProblem pp p)]
   where
-    e = text "Eliminate" <+> pp x <+> text "between" <+> pPrintList ls <+> text "and" <+> pPrintList us <+> text "giving"
-    pPrintList = brackets . fsep . punctuate comma . map (pPrintBound (pPrintTerm pp))
+    pPrintList = brackets . fsep . punctuate comma
 
--- | Calculate the possible elimination steps for a problem.
+-- | calculate the possible elimination steps for a problem.
 eliminations :: Ord a => Problem a -> [Step a]
 eliminations p =
   map snd .
