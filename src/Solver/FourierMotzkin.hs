@@ -10,22 +10,23 @@
 --
 -- See Example.hs for some examples.
 module Solver.FourierMotzkin(
+  -- * Problems
+  Problem, problem, addConstraints, solve,
+
+  -- * Constraints
+  --
+  -- The solver only supports inequalities; you should encode an
+  -- equation @t = u@ as two constraints @t >== u@ and @t <== u@.
+
+  Constraint, (<==), (>==), (</=), (>/=),
+
   -- * Linear terms over variables
   Term, var, scalar, (^*), eval,
 
-  -- * Inequalities between terms
-  --
-  -- The solver only supports inequalities; you should encode an
-  -- equation with two inequalities e.g. @t >== u@ and @t <== u@.
-  Bound, (<==), (>==), (</=), (>/=),
-  
-  -- * Whole problems (systems of inequalities)
-  Problem, problem, addTerms,
-  
-  -- * Solving problems
-  solve,
-  
   -- * Tracing the solution of a problem
-  Step(..), trace) where
+  Step(..), trace,
+
+  -- * Pretty-printing
+  pPrintProblem, pPrintTerm, pPrintBound, pPrintStep) where
 
 import Solver.FourierMotzkin.Internal

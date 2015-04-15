@@ -150,15 +150,18 @@ pPrintProblem pp p =
       [pp x <+> text "<"  <+> pPrintRat a | (x, Open a)   <- Map.toList (upper p)]
 
 -- | Construct a problem from a list of constraints.
-problem :: Ord a => [Bound (Term a)] -> Problem a
-problem ts = addTerms ts empty
+problem :: Ord a => [Constraint a] -> Problem a
+problem ts = addConstraints ts empty
 
 -- | The empty problem.
 empty :: Problem a
 empty = Problem Set.empty Map.empty Map.empty Set.empty
 
+-- | A single constraint.
+type Constraint a = Bound (Term a)
+
 infix 4 <==, >==, </=, >/=
-(<==), (>==), (</=), (>/=) :: Ord a => Term a -> Term a -> Bound (Term a)
+(<==), (>==), (</=), (>/=) :: Ord a => Term a -> Term a -> Constraint a
 
 -- | Less than or equal.
 t <== u = Closed (u - t)
@@ -178,14 +181,14 @@ negateBound (Closed t) = Open (-t)
 negateBound (Open t) = Closed (-t)
 
 -- | Add a list of constraints to an existing problem.
-addTerms :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
-addTerms _ Unsolvable = Unsolvable
-addTerms ts p =
+addConstraints :: Ord a => [Constraint a] -> Problem a -> Problem a
+addConstraints _ Unsolvable = Unsolvable
+addConstraints ts p =
   addDerivedTerms ts p { pvars = Set.union vs (pvars p) }
   where
     vs = Set.unions (map (Set.fromAscList . Map.keys . vars . bound) ts)
 
--- | A slightly more efficient version of 'addTerms',
+-- | A slightly more efficient version of 'addConstraints',
 -- which assumes that the new constraints don't add any variables
 -- that haven't appeared before.
 addDerivedTerms :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
@@ -280,7 +283,7 @@ data Step a =
     --   @x@ to get the problem @p@. The solution is then constrained
     --   to have @x <= l@ for all @l@ in @ls@, and @x >= u@ for all
     --   @u@ in @us@.
-  | Eliminate a [Bound (Term a)] [Bound (Term a)] (Problem a)
+  | Eliminate a [Constraint a] [Constraint a] (Problem a)
 
 instance Pretty a => Pretty (Step a) where pPrint = pPrintStep pPrint
 instance Show a => Show (Step a) where show = show . pPrintStep (text . show)
@@ -420,8 +423,8 @@ prob2 = problem cs2
 prob3 = problem cs3
 
 prob4 =
-  addTerms cs' $
-  addTerms cs $
+  addConstraints cs' $
+  addConstraints cs $
   empty
   where
     cs = [x + y >== 0, x + 2^*y >== 0]
