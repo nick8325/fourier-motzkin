@@ -11,7 +11,7 @@
 -- See @Example.hs@ for some examples.
 module Solver.FourierMotzkin(
   -- * Problems
-  Problem, problem, addConstraints, solve,
+  Problem, problem, addConstraints, empty, solve,
 
   -- * Constraints
   --
