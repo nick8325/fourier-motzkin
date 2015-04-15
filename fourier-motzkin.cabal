@@ -1,0 +1,34 @@
+name:                fourier-motzkin
+version:             0.1
+synopsis:            A solver for linear inequalities over rational numbers
+description:         
+  This package implements Fourier-Motzkin elimination, a method for
+  solving systems of linear inequalities over rational numbers. Given
+  a problem it will either give you back "unsatisfiable" or a solution
+  to the problem.
+  .
+  The implementation is tuned for solving simple problems quickly,
+  rather than solving big problems. It is also quite experimental:
+  expect bugs and API changes!
+  .
+  See Example.hs for some simple examples.
+homepage:            http://github.com/nick8325/fourier-motzkin
+license:             BSD3
+license-file:        LICENSE
+author:              Nick Smallbone
+maintainer:          nicsma@chalmers.se
+category:            Algorithms
+build-type:          Simple
+extra-source-files:  Examples.hs
+cabal-version:       >=1.10
+
+library
+  exposed-modules:     Solver.FourierMotzkin, Solver.FourierMotzkin.Internal
+  build-depends:       base >= 4 && < 5, containers
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
+test-suite examples
+  type:                exitcode-stdio-1.0
+  main-is:             Examples.hs
+  build-depends:       base, criterion

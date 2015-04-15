@@ -1,7 +1,10 @@
+-- | The guts of the solver. You probably shouldn't need to look in
+-- here, and it's all underdocumented.
 {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor #-}
+module Solver.FourierMotzkin.Internal where
+
 import Control.Applicative hiding (empty)
 import Control.Monad
-import Criterion.Main
 import Data.List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
@@ -12,12 +15,19 @@ import Data.Ratio
 import qualified Data.Set as Set
 import Data.Set(Set)
 
+-- | A term is a linear combination of variables plus a constant.
+--
+-- Terms have a 'Num' instance which supports only 'fromInteger',
+-- '+' and 'negate'. Use 'var' to make a variable term,
+-- 'fromInteger' or 'scalar' to make a constant term,
+-- '+' to add terms and '^*' to multiply by a scalar.
 data Term a =
   Term {
     constant :: Rational,
     -- Invariant: no coefficient is zero
     vars :: Map a Rational }
   deriving (Eq, Ord)
+
 instance Show a => Show (Term a) where
   show (Term a vs)
     | Map.null vs = showRat a
@@ -25,17 +35,23 @@ instance Show a => Show (Term a) where
     | otherwise = showRat a ++ " + " ++ showVars vs
     where
       showVars vs = intercalate " + " [ showRat a ++ "*" ++ show x | (x, a) <- Map.toList vs ]
+
+-- | A less ugly show function for rationals.
 showRat :: Rational -> String
 showRat a
   | denominator a == 1 = show (numerator a)
   | otherwise = "(" ++ show a ++ ")"
 
-constTerm :: Rational -> Term a
-constTerm a = Term a Map.empty
+-- | A constant term.
+scalar :: Rational -> Term a
+scalar a = Term a Map.empty
 
+-- | A variable term.
 var :: a -> Term a
 var x = Term 0 (Map.singleton x 1)
 
+-- | Map a function on rationals over a term.
+-- Precondition: @f x /= 0@ if @x /= 0@.
 mapTerm :: (Rational -> Rational) -> Term a -> Term a
 mapTerm f x =
   Term {
@@ -43,17 +59,22 @@ mapTerm f x =
     vars = fmap f (vars x) }
 
 instance Ord a => Num (Term a) where
-  fromInteger n = constTerm (fromInteger n)
+  fromInteger n = scalar (fromInteger n)
   x + y =
     Term {
       constant = constant x + constant y,
       vars = Map.filter (/= 0) (Map.unionWith (+) (vars x) (vars y)) }
   negate = mapTerm negate
+  (*) = error "Solver.FourierMotzkin: * not implemented"
+  abs = error "Solver.FourierMotzkin: abs not implemented"
+  signum = error "Solver.FourierMotzkin: signum not implemented"
 
+-- | Multiply a term by a scalar.
 (^*) :: Rational -> Term a -> Term a
-0 ^* y = constTerm 0
+0 ^* y = scalar 0
 x ^* y = mapTerm (x*) y
 
+-- | Evaluate a term.
 eval :: Ord a => Map a Rational -> Term a -> Rational
 eval m t =
   constant t +
@@ -61,8 +82,11 @@ eval m t =
   where
     err = error "eval: variable not bound"
 
+-- | A single constraint of the form @t >= 0@ or @t > 0@.
 data Bound a =
-  Closed { bound :: a }
+    -- | @t >= 0@
+    Closed { bound :: a }
+    -- | @t > 0@
   | Open { bound :: a }
   deriving (Eq, Ord, Functor)
 
@@ -79,17 +103,21 @@ instance Show a => Show (Bound a) where
   show (Closed x) = show x ++ " >= 0"
   show (Open x) = show x ++ " > 0"
 
+-- | Check if a constant bound is true.
 boundTrue :: (Ord a, Num a) => Bound a -> Bool
 boundTrue (Closed x) = x >= 0
 boundTrue (Open x) = x > 0
 
+-- | A system of inequalities.
 data Problem a =
-  Unsolvable |
+  -- | A problem which is trivially unsolvable.
+  Unsolvable | 
+  -- | A problem which may or may not be solvable.
   Problem {
-    pos    :: Set (Bound (Term a)),
-    lower  :: Map a (Bound Rational),
-    upper  :: Map a (Bound Rational),
-    pvars  :: Set a }
+    pos    :: Set (Bound (Term a)),   -- ^ Constraints of the form @t >= 0@ where @t@ is a term
+    lower  :: Map a (Bound Rational), -- ^ Constraints of the form @x >= k@ or @x > k@ where @x@ is a variable
+    upper  :: Map a (Bound Rational), -- ^ Constraints of the form @x <= k@ or @x < k@ where @x@ is a variable
+    pvars  :: Set a }                 -- ^ The set of variables in the problem
   deriving (Eq, Ord)
 
 instance Show a => Show (Problem a) where
@@ -104,23 +132,35 @@ instance Show a => Show (Problem a) where
         [show x ++ " <= " ++ showRat a | (x, Closed a) <- Map.toList (upper p)] ++
         [show x ++ " < "  ++ showRat a | (x, Open a)   <- Map.toList (upper p)]
 
+-- | Construct a problem from a list of constraints.
 problem :: Ord a => [Bound (Term a)] -> Problem a
 problem ts = addTerms ts empty
 
+-- | The empty problem.
 empty :: Problem a
 empty = Problem Set.empty Map.empty Map.empty Set.empty
 
 infix 4 <==, >==, </=, >/=
 (<==), (>==), (</=), (>/=) :: Ord a => Term a -> Term a -> Bound (Term a)
+
+-- | Less than or equal.
 t <== u = Closed (u - t)
+
+-- | Greater than or equal.
 t >== u = u <== t
+
+-- | Strictly less than.
 t </= u = Open (u - t)
+
+-- | Strictly greater than.
 t >/= u = u </= t
 
+-- | Invert a single constraint.
 negateBound :: Ord a => Bound (Term a) -> Bound (Term a)
 negateBound (Closed t) = Open (-t)
 negateBound (Open t) = Closed (-t)
 
+-- | Add a list of constraints to an existing problem.
 addTerms :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
 addTerms _ Unsolvable = Unsolvable
 addTerms ts p =
@@ -128,12 +168,16 @@ addTerms ts p =
   where
     vs = Set.unions (map (Set.fromAscList . Map.keys . vars . bound) ts)
 
+-- | A slightly more efficient version of 'addTerms',
+-- which assumes that the new constraints don't add any variables
+-- that haven't appeared before.
 addDerivedTerms :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
 addDerivedTerms _ Unsolvable = Unsolvable
 addDerivedTerms ts p = foldr addTerm (addBounds bs p) us
   where
     (bs, us) = partition ((== 1) . Map.size . vars . bound) ts
 
+-- | Internal function to add a single constraint to a problem.
 addTerm :: Ord a => Bound (Term a) -> Problem a -> Problem a
 addTerm _ Unsolvable = Unsolvable
 addTerm t p
@@ -143,6 +187,8 @@ addTerm t p
   | otherwise =
     p { pos = Set.insert t (Set.filter (not . implies p t) (pos p)) }
 
+-- | Internal function to add constraints that only contain one
+-- variable to the problem.
 addBounds :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
 addBounds [] p = p
 addBounds bs p =
@@ -157,6 +203,7 @@ addBounds bs p =
         (x, a) = Map.findMin (vars (bound t))
         b = fmap (\t -> negate (constant t) / a) t
 
+-- | Take the conjunction or disjunction of two bounds.
 bmax, bmin :: (Ord a, Num a) => Bound a -> Bound a -> Bound a
 bmax x y
   | bound x > bound y = x
@@ -164,14 +211,17 @@ bmax x y
   | otherwise = liftM2 const x y
 bmin x y = fmap negate (bmax (fmap negate x) (fmap negate y))
 
+-- | Remove redundant constraints from a problem.
 prune :: Ord a => Problem a -> Problem a
 prune p =
   p { pos = Set.filter (not . redundant p) (pos p) }
 
+-- | Is a constraint redundant in a rpoblem?
 redundant p t =
   trivial p t ||
   or [ implies p u t && (t < u || not (implies p t u)) | u <- Set.toList (pos p), t /= u ]
 
+-- | Does one constraint imply another in a problem?
 implies :: Ord a => Problem a -> Bound (Term a) -> Bound (Term a) -> Bool
 -- a1x1+...+anxn + b >= 0 ==> c1x1+...+cnxn + d >= 0
 -- <=>
@@ -181,6 +231,7 @@ implies p t u = trivial p (b t u (bound u - bound t))
     b Closed{} Open{} = Open
     b _        _      = Closed
 
+-- | Is a constraint trivial in a problem?
 trivial :: Ord a => Problem a -> Bound (Term a) -> Bool
 trivial p t =
   case minValue p (bound t) of
@@ -190,6 +241,9 @@ trivial p t =
     check (Closed x) Open{} = x > 0
     check x _ = bound x >= 0
 
+-- | Attempt to put a lower bound on the value of a term in a problem.
+-- N.B. normally returns @Nothing@, not to be used for optimising an
+-- objective function.
 minValue :: Ord a => Problem a -> Term a -> Maybe (Bound Rational)
 minValue p t = do
   as <- mapM varValue (Map.toList (vars t))
@@ -199,8 +253,17 @@ minValue p t = do
       fmap (fmap (a*))
         (Map.lookup x (if a > 0 then lower p else upper p))
 
-data Step a = Stop | Eliminate a [Bound (Term a)] [Bound (Term a)] (Problem a) deriving Show
+-- | One step in solving a problem.
+data Step a =
+    -- | The problem is already solved.
+    Stop
+    -- | @Eliminate x ls us p@ means that we eliminate the variable
+    --   @x@ to get the problem @p@. The solution is then constrained
+    --   to have @x <= l@ for all @l@ in @ls@, and @x >= r@ for all
+    --   @r@ in @rs@.
+  | Eliminate a [Bound (Term a)] [Bound (Term a)] (Problem a) deriving Show
 
+-- | Calculate the possible elimination steps for a problem.
 eliminations :: Ord a => Problem a -> [Step a]
 eliminations p =
   map snd .
@@ -239,7 +302,7 @@ focus x p = (ls', us', p' { pos = pos' })
       pvars = Set.delete x (pvars p) }
     ((ls', us'), pos') = foldDelete op (ls, us) (pos p')
     (ls, us) = (boundFor (lower p), boundFor (upper p))
-    boundFor s = maybeToList (fmap (fmap constTerm) (Map.lookup x s))
+    boundFor s = maybeToList (fmap (fmap scalar) (Map.lookup x s))
     op t (ls, us) = do
       let vs = vars (bound t)
       a <- Map.lookup x vs
@@ -381,18 +444,18 @@ prob9 =
     z >== 1,
     z >/= 1 ]
 
-main =
- defaultMain [
-   bench "prob0" (whnf solve prob0),
-   bench "prob1" (whnf solve prob1),
-   bench "prob2" (whnf solve prob2),
-   bench "prob3" (whnf solve prob3),
-   bench "prob5" (whnf solve prob5),
-   bench "cs0" (whnf (solve . problem) cs0),
-   bench "cs1" (whnf (solve . problem) cs1),
-   bench "cs2" (whnf (solve . problem) cs2),
-   bench "cs3" (whnf (solve . problem) cs3),
-   bench "cs5" (whnf (solve . problem) cs5)]
+--main =
+-- defaultMain [
+--   bench "prob0" (whnf solve prob0),
+--   bench "prob1" (whnf solve prob1),
+--   bench "prob2" (whnf solve prob2),
+--   bench "prob3" (whnf solve prob3),
+--   bench "prob5" (whnf solve prob5),
+--   bench "cs0" (whnf (solve . problem) cs0),
+--   bench "cs1" (whnf (solve . problem) cs1),
+--   bench "cs2" (whnf (solve . problem) cs2),
+--   bench "cs3" (whnf (solve . problem) cs3),
+--   bench "cs5" (whnf (solve . problem) cs5)]
 
 -- {-# NOINLINE go #-}
 -- go :: (a -> b) -> a -> c -> IO ()
