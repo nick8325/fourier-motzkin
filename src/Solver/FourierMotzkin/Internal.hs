@@ -9,11 +9,12 @@ import Data.List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import Data.Maybe
-import Data.Monoid
+import Data.Monoid hiding ((<>))
 import Data.Ord
 import Data.Ratio
 import qualified Data.Set as Set
 import Data.Set(Set)
+import Text.PrettyPrint.HughesPJClass hiding (empty)
 
 -- | A term is a linear combination of variables plus a constant.
 --
@@ -28,19 +29,29 @@ data Term a =
     vars :: Map a Rational }
   deriving (Eq, Ord)
 
-instance Show a => Show (Term a) where
-  show (Term a vs)
-    | Map.null vs = showRat a
-    | a == 0 = showVars vs
-    | otherwise = showRat a ++ " + " ++ showVars vs
-    where
-      showVars vs = intercalate " + " [ showRat a ++ "*" ++ show x | (x, a) <- Map.toList vs ]
+instance Pretty a => Pretty (Term a) where pPrint = pPrintTerm pPrint
+instance Show a => Show (Term a) where show = show . pPrintTerm (text . show)
+
+pPrintTerm :: (a -> Doc) -> Term a -> Doc
+pPrintTerm pp (Term a vs)
+  | Map.null vs = pPrintRat a
+  | a == 0 = pPrintVars vs
+  | otherwise = pPrintRat a <+> text "+" <+> pPrintVars vs
+  where
+    pPrintVars vs = sep (punctuate (text " +") [ pPrint' a <> text "|" <> pp x <> text "|" | (x, a) <- Map.toList vs ])
+    pPrint' 1 = text ""
+    pPrint' (-1) = text "-"
+    pPrint' x = pPrintRat x
 
 -- | A less ugly show function for rationals.
 showRat :: Rational -> String
 showRat a
   | denominator a == 1 = show (numerator a)
   | otherwise = "(" ++ show a ++ ")"
+
+-- | A pretty-printer for rationals.
+pPrintRat :: Rational -> Doc
+pPrintRat = text . showRat
 
 -- | A constant term.
 scalar :: Rational -> Term a
@@ -99,9 +110,12 @@ instance Monad Bound where
   Closed x >>= f = f x
   Open   x >>= f = Open (bound (f x))
 
-instance Show a => Show (Bound a) where
-  show (Closed x) = show x ++ " >= 0"
-  show (Open x) = show x ++ " > 0"
+instance Pretty a => Pretty (Bound a) where pPrint = pPrintBound pPrint
+instance Show a => Show (Bound a) where show = show . pPrintBound (text . show)
+
+pPrintBound :: (a -> Doc) -> Bound a -> Doc
+pPrintBound pp (Closed x) = pp x <+> text ">= 0"
+pPrintBound pp (Open x) = pp x <+> text "> 0"
 
 -- | Check if a constant bound is true.
 boundTrue :: (Ord a, Num a) => Bound a -> Bool
@@ -120,17 +134,20 @@ data Problem a =
     pvars  :: Set a }                 -- ^ The set of variables in the problem
   deriving (Eq, Ord)
 
-instance Show a => Show (Problem a) where
-  show Unsolvable = "Unsolvable"
-  show p =
-    "[" ++ intercalate ", " xs ++ "]"
-    where
-      xs =
-        [show t | t <- Set.toList (pos p)] ++
-        [show x ++ " >= " ++ showRat a | (x, Closed a) <- Map.toList (lower p)] ++
-        [show x ++ " > "  ++ showRat a | (x, Open a)   <- Map.toList (lower p)] ++
-        [show x ++ " <= " ++ showRat a | (x, Closed a) <- Map.toList (upper p)] ++
-        [show x ++ " < "  ++ showRat a | (x, Open a)   <- Map.toList (upper p)]
+instance Pretty a => Pretty (Problem a) where pPrint = pPrintProblem pPrint
+instance Show a => Show (Problem a) where show = show . pPrintProblem (text . show)
+
+pPrintProblem :: (a -> Doc) -> Problem a -> Doc
+pPrintProblem pp Unsolvable = text "Unsolvable"
+pPrintProblem pp p =
+  brackets (sep (punctuate (text ",") xs))
+  where
+    xs =
+      [pPrintBound (pPrintTerm pp) t | t <- Set.toList (pos p)] ++
+      [pp x <+> text ">=" <+> pPrintRat a | (x, Closed a) <- Map.toList (lower p)] ++
+      [pp x <+> text ">"  <+> pPrintRat a | (x, Open a)   <- Map.toList (lower p)] ++
+      [pp x <+> text "<=" <+> pPrintRat a | (x, Closed a) <- Map.toList (upper p)] ++
+      [pp x <+> text "<"  <+> pPrintRat a | (x, Open a)   <- Map.toList (upper p)]
 
 -- | Construct a problem from a list of constraints.
 problem :: Ord a => [Bound (Term a)] -> Problem a
@@ -255,13 +272,27 @@ minValue p t = do
 
 -- | One step in solving a problem.
 data Step a =
-    -- | The problem is already solved.
-    Stop
+    -- | The problem couldn't be solved.
+    StopUnsolvable
+    -- | The problem is tautological.
+  | StopSolved
     -- | @Eliminate x ls us p@ means that we eliminate the variable
     --   @x@ to get the problem @p@. The solution is then constrained
-    --   to have @x <= l@ for all @l@ in @ls@, and @x >= r@ for all
-    --   @r@ in @rs@.
-  | Eliminate a [Bound (Term a)] [Bound (Term a)] (Problem a) deriving Show
+    --   to have @x <= l@ for all @l@ in @ls@, and @x >= u@ for all
+    --   @u@ in @us@.
+  | Eliminate a [Bound (Term a)] [Bound (Term a)] (Problem a)
+
+instance Pretty a => Pretty (Step a) where pPrint = pPrintStep pPrint
+instance Show a => Show (Step a) where show = show . pPrintStep (text . show)
+
+pPrintStep :: (a -> Doc) -> Step a -> Doc
+pPrintStep pp StopUnsolvable = text "Stop, unsolvable"
+pPrintStep pp StopSolved = text "Stop, solved"
+pPrintStep pp (Eliminate x ls us p) =
+  hang e 2 (pPrintProblem pp p)
+  where
+    e = text "Eliminate" <+> pp x <+> text "between" <+> pPrintList ls <+> text "and" <+> pPrintList us <+> text "giving"
+    pPrintList = brackets . fsep . punctuate comma . map (pPrintBound (pPrintTerm pp))
 
 -- | Calculate the possible elimination steps for a problem.
 eliminations :: Ord a => Problem a -> [Step a]
@@ -358,8 +389,8 @@ solveBounds (x, y) =
 
 -- Debugging function
 trace :: Ord a => Problem a -> [Step a]
-trace Unsolvable = []
-trace p | Set.null (pos p) = []
+trace Unsolvable = [StopUnsolvable]
+trace p | Set.null (pos p) = [StopSolved]
 trace p = s:trace p'
   where
     s@(Eliminate _ _ _ p'):_ = eliminations p
