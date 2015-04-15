@@ -24,9 +24,9 @@ module Solver.FourierMotzkin(
   Term, var, scalar, (^*), eval,
 
   -- * Tracing the solution of a problem
-  Step(..), trace,
+  Steps, trace,
 
   -- * Pretty-printing
-  pPrintProblem, pPrintTerm, pPrintBound, pPrintStep) where
+  pPrintProblem, pPrintTerm, pPrintConstraint, pPrintSteps) where
 
 import Solver.FourierMotzkin.Internal

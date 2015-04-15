@@ -18,10 +18,10 @@ import Text.PrettyPrint.HughesPJClass hiding (empty)
 
 -- | A term is a linear combination of variables plus a constant.
 --
--- Terms have a 'Num' instance which supports only 'fromInteger',
--- '+' and 'negate'. Use 'var' to make a variable term,
--- 'fromInteger' or 'scalar' to make a constant term,
--- '+' to add terms and '^*' to multiply by a scalar.
+-- Use 'var' to make a variable term, 'fromInteger' or 'scalar' to
+-- make a constant term, '+' to add terms and '^*' to multiply by a
+-- scalar. The 'Num' instance for terms supports '+', 'negate' and
+-- 'fromInteger' but not the other operations.
 data Term a =
   Term {
     constant :: Rational,
@@ -32,6 +32,7 @@ data Term a =
 instance Pretty a => Pretty (Term a) where pPrint = pPrintTerm pPrint
 instance Show a => Show (Term a) where show = show . pPrintTerm (text . show)
 
+-- Pretty-print a term.
 pPrintTerm :: (a -> Doc) -> Term a -> Doc
 pPrintTerm pp (Term a vs)
   | Map.null vs = pPrintRat a
@@ -49,15 +50,15 @@ showRat a
   | denominator a == 1 = show (numerator a)
   | otherwise = "(" ++ show (numerator a) ++ "/" ++ show (denominator a) ++ ")"
 
--- | A pretty-printer for rationals.
+-- | Pretty-print a rational.
 pPrintRat :: Rational -> Doc
 pPrintRat = text . showRat
 
--- | A constant term.
+-- | Make a constant term.
 scalar :: Rational -> Term a
 scalar a = Term a Map.empty
 
--- | A variable term.
+-- | Make a variable term.
 var :: a -> Term a
 var x = Term 0 (Map.singleton x 1)
 
@@ -94,6 +95,8 @@ eval m t =
     err = error "eval: variable not bound"
 
 -- | A single constraint of the form @t >= 0@ or @t > 0@.
+-- This type is also (ab)used to represent variable bounds
+-- of the form @x >= k@, @x > k@, @x <= k@, @x < k@.
 data Bound a =
     -- | @t >= 0@
     Closed { bound :: a }
@@ -125,21 +128,25 @@ pPrintUpper :: Doc -> (a -> Doc) -> Bound a -> Doc
 pPrintUpper x pp (Closed a) = x <+> text "<=" <+> pp a
 pPrintUpper x pp (Open a) = x <+> text "<" <+> pp a
 
--- | Check if a constant bound is true.
+-- Check if a constant bound is true.
 boundTrue :: (Ord a, Num a) => Bound a -> Bool
 boundTrue (Closed x) = x >= 0
 boundTrue (Open x) = x > 0
 
--- | A system of inequalities.
+-- | A problem.
 data Problem a =
   -- | A problem which is trivially unsolvable.
   Unsolvable | 
   -- | A problem which may or may not be solvable.
   Problem {
-    pos    :: Set (Bound (Term a)),   -- ^ Constraints of the form @t >= 0@ where @t@ is a term
-    lower  :: Map a (Bound Rational), -- ^ Constraints of the form @x >= k@ or @x > k@ where @x@ is a variable
-    upper  :: Map a (Bound Rational), -- ^ Constraints of the form @x <= k@ or @x < k@ where @x@ is a variable
-    pvars  :: Set a }                 -- ^ The set of variables in the problem
+    -- ^ General constraints. Have the form @t >= 0@ or @t > 0@ where @t@ is a term
+    pos    :: Set (Bound (Term a)),
+    -- ^ Lower bounds. Have the form @x >= k@ or @x > k@ where @x@ is a variable
+    lower  :: Map a (Bound Rational),
+    -- ^ Upper bounds. Have the form @x <= k@ or @x < k@ where @x@ is a variable
+    upper  :: Map a (Bound Rational),
+    -- ^ The set of variables in the problem
+    pvars  :: Set a }
   deriving (Eq, Ord)
 
 instance Pretty a => Pretty (Problem a) where pPrint = pPrintProblem pPrint
@@ -166,6 +173,10 @@ empty = Problem Set.empty Map.empty Map.empty Set.empty
 -- | A single constraint.
 type Constraint a = Bound (Term a)
 
+-- | Pretty-print a single constraint.
+pPrintConstraint :: (a -> Doc) -> Constraint a -> Doc
+pPrintConstraint pp = pPrintBound (pPrintTerm pp)
+
 infix 4 <==, >==, </=, >/=
 (<==), (>==), (</=), (>/=) :: Ord a => Term a -> Term a -> Constraint a
 
@@ -181,7 +192,7 @@ t </= u = Open (u - t)
 -- | Strictly greater than.
 t >/= u = u </= t
 
--- | Invert a single constraint.
+-- Invert a bound.
 negateBound :: Ord a => Bound (Term a) -> Bound (Term a)
 negateBound (Closed t) = Open (-t)
 negateBound (Open t) = Closed (-t)
@@ -194,16 +205,23 @@ addConstraints ts p =
   where
     vs = Set.unions (map (Set.fromAscList . Map.keys . vars . bound) ts)
 
--- | A slightly more efficient version of 'addConstraints',
+-- A slightly more efficient version of 'addConstraints',
 -- which assumes that the new constraints don't add any variables
 -- that haven't appeared before.
+--
+-- We split the constraints into two kinds:
+--   * Bounds are constraints containing only one variable (e.g. x >= k).
+--     These are stored in the "lower" and "upper" fields of the problem,
+--     and are handled by addBounds.
+--   * Harder constraints, which are stored in the "pos" field of the
+--     problem, and handled by addTerm.
+-- We also remove redundant constraints (see comment for "prune").
 addDerivedTerms :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
 addDerivedTerms _ Unsolvable = Unsolvable
 addDerivedTerms ts p = foldr addTerm (addBounds bs p) us
   where
     (bs, us) = partition ((== 1) . Map.size . vars . bound) ts
 
--- | Internal function to add a single constraint to a problem.
 addTerm :: Ord a => Bound (Term a) -> Problem a -> Problem a
 addTerm _ Unsolvable = Unsolvable
 addTerm t p
@@ -213,8 +231,6 @@ addTerm t p
   | otherwise =
     p { pos = Set.insert t (Set.filter (not . implies p t) (pos p)) }
 
--- | Internal function to add constraints that only contain one
--- variable to the problem.
 addBounds :: Ord a => [Bound (Term a)] -> Problem a -> Problem a
 addBounds [] p = p
 addBounds bs p =
@@ -229,7 +245,7 @@ addBounds bs p =
         (x, a) = Map.findMin (vars (bound t))
         b = fmap (\t -> negate (constant t) / a) t
 
--- | Take the conjunction or disjunction of two bounds.
+-- Take the conjunction or disjunction of two bounds.
 bmax, bmin :: (Ord a, Num a) => Bound a -> Bound a -> Bound a
 bmax x y
   | bound x > bound y = x
@@ -237,27 +253,33 @@ bmax x y
   | otherwise = liftM2 const x y
 bmin x y = fmap negate (bmax (fmap negate x) (fmap negate y))
 
--- | Remove redundant constraints from a problem.
+-- Remove redundant constraints from a problem.
+-- We don't do full redundancy checking, since that's too expensive.
+-- Instead, we consider a constraint redundant if it can be proved from:
+--   * all the bounds (x >= k etc.) we have on single variables, plus
+--   * at most one other constraint in the problem.
 prune :: Ord a => Problem a -> Problem a
 prune p =
   p { pos = Set.filter (not . redundant p) (pos p) }
 
--- | Is a constraint redundant in a rpoblem?
+-- Is a constraint redundant in a problem?
 redundant p t =
   trivial p t ||
+  -- The extra faff here is to avoid circularly removing
+  -- two constraints that imply each other
   or [ implies p u t && (t < u || not (implies p t u)) | u <- Set.toList (pos p), t /= u ]
 
--- | Does one constraint imply another in a problem?
+-- Does one constraint imply another?
 implies :: Ord a => Problem a -> Bound (Term a) -> Bound (Term a) -> Bool
 -- a1x1+...+anxn + b >= 0 ==> c1x1+...+cnxn + d >= 0
--- <=>
+-- follows from
 -- (c1-a1)x1+...+(cn-an)x2 + d - b >= 0
 implies p t u = trivial p (b t u (bound u - bound t))
   where
     b Closed{} Open{} = Open
     b _        _      = Closed
 
--- | Is a constraint trivial in a problem?
+-- Does a constraint follow from the bounds we have on variables?
 trivial :: Ord a => Problem a -> Bound (Term a) -> Bool
 trivial p t =
   case minValue p (bound t) of
@@ -267,9 +289,8 @@ trivial p t =
     check (Closed x) Open{} = x > 0
     check x _ = bound x >= 0
 
--- | Attempt to put a lower bound on the value of a term in a problem.
--- N.B. normally returns @Nothing@, not to be used for optimising an
--- objective function.
+-- Attempt to put a lower bound on the value of a term given some
+-- variable bounds.
 minValue :: Ord a => Problem a -> Term a -> Maybe (Bound Rational)
 minValue p t = do
   as <- mapM varValue (Map.toList (vars t))
@@ -279,24 +300,28 @@ minValue p t = do
       fmap (fmap (a*))
         (Map.lookup x (if a > 0 then lower p else upper p))
 
+-- | All steps used in solving a problem.
+newtype Steps a = Steps [Step a]
+
+-- | Pretty-print the derivation of a solution.
+pPrintSteps :: (a -> Doc) -> Steps a -> Doc
+pPrintSteps pp (Steps xs) = vcat (map (pPrintStep pp) xs)
+
+instance Pretty a => Pretty (Steps a) where pPrint = pPrintSteps pPrint
+instance Show a => Show (Steps a) where show = show . pPrintSteps (text . show)
+
 -- | One step in solving a problem.
 data Step a =
-    -- | The problem couldn't be solved.
-    StopUnsolvable
-    -- | The problem is tautological.
-  | StopSolved
-    -- | @Eliminate x ls us p@ means that we eliminate the variable
-    --   @x@ to get the problem @p@. The solution is then constrained
-    --   to have @x <= l@ for all @l@ in @ls@, and @x >= u@ for all
-    --   @u@ in @us@.
-  | Eliminate a [Constraint a] [Constraint a] (Problem a)
+  -- | @Eliminate x ls us p@: we eliminate the variable @x@ to get
+  -- the problem @p@. @x@ must also be greater than all terms in @ls@
+  -- and less than all terms in @us@.
+  Eliminate a [Constraint a] [Constraint a] (Problem a)
 
 instance Pretty a => Pretty (Step a) where pPrint = pPrintStep pPrint
 instance Show a => Show (Step a) where show = show . pPrintStep (text . show)
 
+-- | Pretty-print a step of a solution.
 pPrintStep :: (a -> Doc) -> Step a -> Doc
-pPrintStep pp StopUnsolvable = text "Stop, unsolvable"
-pPrintStep pp StopSolved = text "Stop, solved"
 pPrintStep pp (Eliminate x ls us p) =
   sep [
     text "Eliminate" <+> pp x <+> text "with bounds",
@@ -309,13 +334,14 @@ pPrintStep pp (Eliminate x ls us p) =
   where
     pPrintList = brackets . fsep . punctuate comma
 
--- | calculate the possible elimination steps for a problem.
+-- Find the possible elimination steps for a problem.
 eliminations :: Ord a => Problem a -> [Step a]
 eliminations p =
   map snd .
   sortBy (comparing fst) $
     [ eliminate x p | x <- Set.toList (pvars p) ]
 
+-- Eliminating variable x in problem p
 eliminate :: Ord a => a -> Problem a -> (Int, Step a)
 eliminate x p =
   -- Number of terms added by the elimination
@@ -339,6 +365,11 @@ eliminate x p =
     nontrivial (_:_:_) = True
     nontrivial _ = False
 
+-- Given a variable and a problem, partition the problem into three
+-- kinds of constraints:
+--   * lower bounds: constraints of the form x >= t or x > t,
+--   * upper bounds: constraints of the form x <= t or x < t,
+--   * constraints that don't mention x.
 focus :: Ord a => a -> Problem a -> ([Bound (Term a)], [Bound (Term a)], Problem a)
 focus x p = (ls', us', p' { pos = pos' })
   where
@@ -365,6 +396,7 @@ foldDelete op e s = Set.foldr op' (e, s) s
         Nothing -> (y, s)
         Just y' -> (y', Set.delete x s)
 
+-- | Solve a problem, returning @Just@ a solution or @Nothing@.
 solve :: Ord a => Problem a -> Maybe (Map a Rational)
 solve Unsolvable = Nothing
 solve p | Set.null (pos p) =
@@ -384,6 +416,7 @@ solve p = do
     try f [] = Nothing
     try f xs = Just (f xs)
 
+-- Find a value satisfying a pair of bounds.
 solveBounds :: (Maybe (Bound Rational), Maybe (Bound Rational)) -> Maybe Rational
 solveBounds (Just x, Just y)
   | empty x y = Nothing
@@ -402,13 +435,15 @@ solveBounds (x, y) =
     solveBound (Closed x) = x
     solveBound (Open x) = fromInteger (floor (x+1))
 
--- Debugging function
-trace :: Ord a => Problem a -> [Step a]
-trace Unsolvable = [StopUnsolvable]
-trace p | Set.null (pos p) = [StopSolved]
-trace p = s:trace p'
+-- | Produce the set of steps needed to solve a problem, for debugging.
+trace :: Ord a => Problem a -> Steps a
+trace = Steps . trace'
   where
-    s@(Eliminate _ _ _ p'):_ = eliminations p
+    trace' Unsolvable = []
+    trace' p | Set.null (pos p) = []
+    trace' p = s:trace' p'
+      where
+        s@(Eliminate _ _ _ p'):_ = eliminations p
 
 x = var 'x'
 y = var 'y'
