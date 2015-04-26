@@ -21,7 +21,7 @@ module Solver.FourierMotzkin(
   Constraint, (<==), (>==), (</=), (>/=),
 
   -- * Linear terms over variables
-  Term, var, scalar, (^*), eval,
+  Term, var, scalar, (^*), eval, evalSolution,
 
   -- * Tracing the solution of a problem
   Steps, trace,

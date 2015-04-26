@@ -89,11 +89,17 @@ instance Ord a => Num (Term a) where
 0 ^* _ = scalar 0
 x ^* y = mapTerm (x*) y
 
--- | Evaluate a term.
-eval :: Ord a => Rational -> Map a Rational -> Term a -> Rational
-eval def m t =
-  constant t +
-  sum [ a * Map.findWithDefault def x m | (x, a) <- Map.toList (vars t) ]
+-- | Evaluate a term, given a map from variables to values.
+evalSolution :: Ord a => Map a Rational -> Term a -> Rational
+evalSolution m t =
+  eval (\x -> Map.findWithDefault def x m) t
+  where
+    def = ERROR("value not found in map")
+
+-- | Evaluate a term, given a function from variables to values.
+eval :: (a -> Rational) -> Term a -> Rational
+eval val t =
+  constant t + sum [ a * val x | (x, a) <- Map.toList (vars t) ]
 
 -- | A single constraint of the form @t >= 0@ or @t > 0@.
 -- This type is also (ab)used to represent variable bounds
@@ -413,8 +419,8 @@ solve p =
           return (x, a)
     Eliminate x ls us p':_ -> do
       m <- solve p'
-      let Just a = solveBounds (try (foldr1 bmax) (map (fmap (eval __ m)) ls),
-                                try (foldr1 bmin) (map (fmap (eval __ m)) us))
+      let Just a = solveBounds (try (foldr1 bmax) (map (fmap (evalSolution m)) ls),
+                                try (foldr1 bmin) (map (fmap (evalSolution m)) us))
       return (Map.insert x a m)
   where
     try _ [] = Nothing
