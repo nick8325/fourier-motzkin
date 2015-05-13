@@ -42,10 +42,10 @@ pPrintTerm pp (Term a vs)
   | a == 0 = pPrintVars vs
   | otherwise = pPrintRat a <+> text "+" <+> pPrintVars vs
   where
-    pPrintVars vs = sep (punctuate (text " +") [ pPrint' a <> text "*" <> pp x | (x, a) <- Map.toList vs ])
+    pPrintVars vs = sep (punctuate (text " +") [ pPrint' a <> pp x | (x, a) <- Map.toList vs ])
     pPrint' 1 = text ""
     pPrint' (-1) = text "-"
-    pPrint' x = pPrintRat x
+    pPrint' x = pPrintRat x <> text "*"
 
 -- | A less ugly show function for rationals.
 showRat :: Rational -> String
