@@ -190,7 +190,7 @@ type Constraint a = Bound (Term a)
 pPrintConstraint :: (a -> Doc) -> Constraint a -> Doc
 pPrintConstraint pp = pPrintBound (pPrintTerm pp)
 
-infix 4 <==, >==, </=, >/=
+infix 5 <==, >==, </=, >/=
 (<==), (>==), (</=), (>/=) :: Ord a => Term a -> Term a -> Constraint a
 
 -- | Less than or equal.
