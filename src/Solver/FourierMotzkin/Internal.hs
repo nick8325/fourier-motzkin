@@ -205,10 +205,10 @@ t </= u = Open (u - t)
 -- | Strictly greater than.
 t >/= u = u </= t
 
--- Invert a bound.
-negateBound :: Ord a => Bound (Term a) -> Bound (Term a)
-negateBound (Closed t) = Open (-t)
-negateBound (Open t) = Closed (-t)
+-- | Negate a constraint.
+negateConstraint :: Ord a => Constraint a -> Constraint a
+negateConstraint (Closed t) = Open (-t)
+negateConstraint (Open t) = Closed (-t)
 
 -- | Add a list of constraints to an existing problem.
 addConstraints :: Ord a => [Constraint a] -> Problem a -> Problem a

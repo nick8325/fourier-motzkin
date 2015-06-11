@@ -18,7 +18,7 @@ module Solver.FourierMotzkin(
   -- The solver only supports inequalities; you should encode an
   -- equation @t = u@ as two constraints @t >== u@ and @t <== u@.
 
-  Constraint, (<==), (>==), (</=), (>/=),
+  Constraint, (<==), (>==), (</=), (>/=), negateConstraint,
 
   -- * Linear terms over variables
   Term, var, scalar, (^*), eval, evalSolution,
