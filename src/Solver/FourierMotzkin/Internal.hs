@@ -8,6 +8,7 @@ module Solver.FourierMotzkin.Internal where
 import Control.Applicative hiding (empty)
 #endif
 
+import Prelude hiding ((<>))
 import Control.Monad
 import Data.List
 import qualified Data.Map.Strict as Map
